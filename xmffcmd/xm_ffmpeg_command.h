@@ -37,6 +37,7 @@ int ffcmd_get_msg(XMFFmpegCmd *cmd, AVMessage *msg, int block);
 
 void xm_ffmpeg_cmd_msg_thread_exit(XMFFmpegCmd *cmd);
 void xm_ffmpeg_cmd_stop(XMFFmpegCmd *cmd);
+int xm_ffmpeg_cmd_startSync(XMFFmpegCmd *cmd, int argc, char **argv);
 void xm_ffmpeg_cmd_start(XMFFmpegCmd *cmd, int argc, char **argv);
 int xm_ffmpeg_cmd_prepareAsync(XMFFmpegCmd *cmd);
 XMFFmpegCmd *xm_ffmpeg_cmd_create(int(*msg_loop)(void*));

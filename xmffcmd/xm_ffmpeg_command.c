@@ -8,6 +8,7 @@
 #define FFCMD_OUT_OF_MEMORY -2
 #define FFCMD_INVALID_STATE -3
 #define FFCMD_NULL_IS_PTR -4
+#define XM_FFMPEG_LOG_TAG "XMFFMPEG"
 
 #define MP_RET_IF_FAILED(ret) \
     do { \
@@ -381,6 +382,29 @@ void xm_ffmpeg_cmd_stop(XMFFmpegCmd *cmd)
     ffcmd_notify_msg1(&cmd->msg_queue, FFCMD_REQ_STOP);
 }
 
+int xm_ffmpeg_cmd_startSync(XMFFmpegCmd *cmd, int argc, char **argv)
+{
+    ALOGD("xm_ffmpeg_cmd_startSync()\n");
+    if (!cmd || !argv || !*argv)
+        return -1;
+
+    if (cmd->cmd.argv != NULL) {
+        for (int i = 0; i < cmd->cmd.argc; i++) {
+            if (cmd->cmd.argv[i] != NULL)
+                av_free(cmd->cmd.argv[i]);
+        }
+        av_free(cmd->cmd.argv);
+    }
+
+    cmd->cmd.argc = argc;
+    cmd->cmd.argv = (char**)av_mallocz(sizeof(char*) * argc);
+    for (int i = 0; i < argc; i++) {
+        cmd->cmd.argv[i] = av_strdup(argv[i]);
+    }
+
+    return ffmpeg_main(cmd->cmd.argc, cmd->cmd.argv, cmd);
+}
+
 void xm_ffmpeg_cmd_start(XMFFmpegCmd *cmd, int argc, char **argv)
 {
     ALOGD("xm_ffmpeg_cmd_start()\n");
@@ -454,14 +478,29 @@ XMFFmpegCmd *xm_ffmpeg_cmd_create(int(*msg_loop)(void*))
     return cmd;
 }
 
+inline static int log_level_av_to_xm(int av_level)
+{
+    int xm_level = XM_LOG_VERBOSE;
+    if      (av_level <= AV_LOG_PANIC)      xm_level = XM_LOG_FATAL;
+    else if (av_level <= AV_LOG_FATAL)      xm_level = XM_LOG_FATAL;
+    else if (av_level <= AV_LOG_ERROR)      xm_level = XM_LOG_ERROR;
+    else if (av_level <= AV_LOG_WARNING)    xm_level = XM_LOG_WARN;
+    else if (av_level <= AV_LOG_INFO)       xm_level = XM_LOG_INFO;
+    else if (av_level <= AV_LOG_VERBOSE)    xm_level = XM_LOG_INFO;
+    else if (av_level <= AV_LOG_DEBUG)      xm_level = XM_LOG_DEBUG;
+    else if (av_level <= AV_LOG_TRACE)      xm_level = XM_LOG_VERBOSE;
+    else                                    xm_level = XM_LOG_VERBOSE;
+    return xm_level;
+}
+
 inline static int log_level_xm_to_av(int xm_level)
 {
     int av_level = XM_LOG_VERBOSE;
     if      (xm_level >= XM_LOG_SILENT)   av_level = AV_LOG_QUIET;
     else if (xm_level >= XM_LOG_FATAL)    av_level = AV_LOG_FATAL;
     else if (xm_level >= XM_LOG_ERROR)    av_level = AV_LOG_ERROR;
-    else if (xm_level >= XM_LOG_WARN)     av_level = AV_LOG_WARNING;
-    else if (xm_level >= XM_LOG_INFO)     av_level = AV_LOG_INFO;
+    else if (xm_level >= XM_LOG_WARN)	   av_level = AV_LOG_WARNING;
+    else if (xm_level >= XM_LOG_INFO)	   av_level = AV_LOG_INFO;
     else if (xm_level >= XM_LOG_DEBUG)    av_level = AV_LOG_DEBUG;
     else if (xm_level >= XM_LOG_VERBOSE)  av_level = AV_LOG_TRACE;
     else if (xm_level >= XM_LOG_DEFAULT)  av_level = AV_LOG_TRACE;
@@ -470,10 +509,20 @@ inline static int log_level_xm_to_av(int xm_level)
     return av_level;
 }
 
+static void ff_log_callback_brief(void *ptr, int level, const char *fmt, va_list vl)
+{
+    if (level > av_log_get_level())
+        return;
+
+    int xmlv __unused = log_level_av_to_xm(level);
+    VLOG(xmlv, XM_FFMPEG_LOG_TAG, fmt, vl);
+}
+
 void xm_ffmpeg_set_log_level(int log_level)
 {
     int av_level = log_level_xm_to_av(log_level);
     av_log_set_level(av_level);
+    av_log_set_callback(ff_log_callback_brief);
 }
 
 void xm_ffmpeg_init()

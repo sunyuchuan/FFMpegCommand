@@ -6,10 +6,12 @@
 #include "ijksdl/ijksdl_misc.h"
 
 #include "xm_ffmpeg_command.h"
+#include "xm_adts_utils.h"
 
 #define TAG "xm_ffmpeg_command_jni"
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 #define JNI_CLASS_XM_FFMPEG_COMMAND "com/xmly/media/co_production/FFmpegCommand"
 
@@ -23,7 +25,7 @@ typedef struct xm_ffmpeg_command_fields_t {
 static xm_ffmpeg_command_fields_t g_clazz;
 static JavaVM* g_jvm;
 
-jlong jni_nativeXMFFmpegCommand_get(JNIEnv *env, jobject thiz)
+static jlong jni_nativeXMFFmpegCommand_get(JNIEnv *env, jobject thiz)
 {
     return (*env)->GetLongField(env, thiz, g_clazz.field_mNativeFFmpegCommand);
 }
@@ -174,6 +176,39 @@ XMFFmpegCommand_stop(JNIEnv *env, jobject thiz)
     ffcmd_dec_ref_p(&cmd);
 }
 
+static jint
+XMFFmpegCommand_startSync(JNIEnv *env, jobject thiz, jint cmdnum, jobjectArray cmdline)
+{
+    LOGD("%s\n", __func__);
+    int ret = -1;
+    int argc = cmdnum;
+    if (argc <= 0)
+        return ret;
+
+    char **argv = (char**)av_mallocz(sizeof(char*) * argc);
+    for (int i = 0; i < argc; i++) {
+        jstring string = (*env)->GetObjectArrayElement(env, cmdline, i);
+        const char *tmp = (*env)->GetStringUTFChars(env, string, 0);
+        if (NULL == tmp)
+            goto end;
+        argv[i] = av_strdup(tmp);
+        (*env)->ReleaseStringUTFChars(env, string, tmp);
+        (*env)->DeleteLocalRef(env, string);
+    }
+
+    XMFFmpegCmd *cmd = jni_get_ffmpeg_cmd(env, thiz);
+    JNI_CHECK_GOTO(cmd, env, "java/lang/IllegalStateException", "ffcmd jni: startSync: null cmd", LABEL_RETURN);
+    ret = xm_ffmpeg_cmd_startSync(cmd, argc, argv);
+LABEL_RETURN:
+    ffcmd_dec_ref_p(&cmd);
+end:
+    for (int i=0; i < argc; i++) {
+        av_free(argv[i]);
+    }
+    av_free(argv);
+    return ret;
+}
+
 static void
 XMFFmpegCommand_start(JNIEnv *env, jobject thiz, jint cmdnum, jobjectArray cmdline)
 {
@@ -240,10 +275,24 @@ XMFFmpegCommand_native_setLogLevel(JNIEnv *env, jobject thiz, jint level)
     xm_ffmpeg_set_log_level(level);
 }
 
+static int
+getAdtsDurationMs(JNIEnv *env, jobject thiz, jstring path)
+{
+    LOGD("%s\n", __func__);
+    char *c_path = (*env)->GetStringUTFChars(env, path, NULL);
+    if (c_path == NULL) return -1;
+
+    int ret = xm_adts_get_duration_ms(c_path);
+    (*env)->ReleaseStringUTFChars(env, path, c_path);
+    return ret;
+}
+
 static JNINativeMethod g_methods[] = {
+    { "native_getAdtsDurationMs", "(Ljava/lang/String;)I", (void *) getAdtsDurationMs },
     { "native_setLogLevel",        "(I)V",   (void *) XMFFmpegCommand_native_setLogLevel },
     { "native_setup",        "(Ljava/lang/Object;)V",   (void *) XMFFmpegCommand_native_setup },
     { "native_prepareAsync", "()I",                     (void *) XMFFmpegCommand_prepareAsync},
+    { "native_startSync",    "(I[Ljava/lang/String;)I", (void *) XMFFmpegCommand_startSync},
     { "native_start",        "(I[Ljava/lang/String;)V", (void *) XMFFmpegCommand_start},
     { "native_stop",         "()V",                     (void *) XMFFmpegCommand_stop },
     { "native_finalize",     "()V",                     (void *) XMFFmpegCommand_native_finalize },
